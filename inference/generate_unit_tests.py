@@ -31,9 +31,6 @@ from datasets import Dataset
 from datasets import load_dataset
 from transformers import AutoTokenizer
 
-# vLLM imports
-from vllm import LLM, SamplingParams
-from vllm.distributed import init_distributed_environment
 
 from utils.llm_utils import VLLMGenerator
 

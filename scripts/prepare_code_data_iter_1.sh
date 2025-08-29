@@ -27,4 +27,4 @@ python -m inference.generate_unit_test \
 
 # 2. Create dataset for training code generator
 python -m dataset.prepare_codegen_iter_1_taco \
-    --model_for_ut_sampling qwen3_4b_utrl_testgen_iter_1 \
+    --model_for_ut_generation qwen3_4b_utrl_testgen_iter_1 \

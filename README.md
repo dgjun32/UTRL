@@ -74,7 +74,7 @@ bash scripts/prepare_ut_data_iter_1.sh
 bash scripts/train_ut_model_iter_1.sh
 
 # Create data for training code generator
-bash scripts/prepare_code_data_iter_1.sh ${checkpoint step, 50}
+bash scripts/prepare_code_data_iter_1.sh ${ut generator ckpt step (50)}
 
 # Train Code generator LLM via UTRL
 bash scripts/train_code_model_iter_1.sh
@@ -83,10 +83,10 @@ bash scripts/train_code_model_iter_1.sh
 #### **2. UTRL - Iteration 2**
 ```bash
 # Create data for training unit test generator
-bash scripts/prepare_ut_data_iter_2.sh ${checkpoint step, 370}
+bash scripts/prepare_ut_data_iter_2.sh ${code generator ckpt step (370)}
 
 # Train UT generator LLM via UTRL
-bash scripts/train_ut_model_iter_2.sh
+bash scripts/train_ut_model_iter_2.sh ${ut generator ckpt step (50)}
 ```
 
 ### 📊 **Evaluation**
@@ -95,10 +95,9 @@ bash scripts/train_ut_model_iter_2.sh
 python -m inference.generate_unit_test \
     --test_generation_model ckpt/qwen3_4b_utrl_testgen_iter_2/global_step_{ckpt step, 170} \
     --target_path qwen3_4b_utrl_testgen_iter_2 \
-    --data_path data/taco_test.json \
-    --output_dir results/
+    --split test \
 
-# Evaluate best-of-N improvement & Unit Test Fidelity
+# Evaluate & Summarize best-of-N improvement & Unit Test Fidelity
 bash scripts/evaluation.sh
 ```
 
@@ -110,7 +109,7 @@ If you find UTRL useful in your research, please consider citing our work:
 @article{lee2024utrl,
   title={UTRL: Learning to Generate Unit Test via Adversarial Reinforcement Learning},
   author={Lee, Dongjun and Hwang, Changho and Lee, Kimin},
-  journal={arXiv preprint arXiv:2024.xxxxx},
-  year={2024}
+  journal={arXiv preprint arXiv:2025.0828},
+  year={2025}
 }
 ```

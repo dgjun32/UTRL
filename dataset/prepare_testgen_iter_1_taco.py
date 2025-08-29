@@ -123,7 +123,7 @@ def main(args):
     
     # Postprocess function
     train_dataset = train_dataset.map(add_test_generation_prompt_for_train)
-    test_dataset = test_dataset.map(add_test_generation_prompt_for_validation)
+    test_dataset = test_dataset.map(add_test_generation_prompt_for_test)
     
     # Filter out samples without ground truth solution
     train_dataset = train_dataset.filter(lambda x: x['extra_info']['gt_solution'] is not None)
@@ -131,7 +131,7 @@ def main(args):
     # split dataset into train and validation
     train_dataset = train_dataset.select_columns(["prompt", "extra_info", "data_source", "ground_truth"])
     test_dataset = test_dataset.select_columns(["prompt", "extra_info", "data_source", "ground_truth"])
-    train_dataset, val_dataset = train_dataset.train_test_split(test_size=1000)
+    train_dataset, val_dataset = train_dataset.train_test_split(test_size=1000, seed=42)
     train_dataset.to_parquet(os.path.join("data/", "train_testgen_iter_1_taco.parquet"))
     val_dataset.to_parquet(os.path.join("data/", "val_testgen_iter_1_taco.parquet"))
     test_dataset.to_parquet(os.path.join("data/", "eval_testgen_iter_1_taco.parquet"))
