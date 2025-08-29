@@ -1,0 +1,11 @@
+.cache/
+__pycache__/
+utils/__pycache__/
+test.ipynb
+training.log
+wandb/
+mnt/
+outputs/
+checkpoints/
+data/
+ckpt/
