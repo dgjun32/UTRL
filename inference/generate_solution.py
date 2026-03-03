@@ -1,20 +1,8 @@
-import re
-import base64
-import random
 import os
-import ast 
-import astor
 import json
-import math
-import tempfile
-import subprocess
-import time
-import concurrent
 import argparse
-import asyncio
 import sys
-from typing import List, Dict, Any, Tuple, Set
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from typing import List, Union
 
 # Add parent directory to path for imports
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -22,124 +10,107 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 # Set cache directory to avoid permission issues
 os.environ['HF_DATASETS_CACHE'] = os.path.expanduser('~/.cache/huggingface/datasets')
 
-import tqdm
-from tqdm import tqdm
-import torch
-import datasets
-import transformers
-import numpy as np
-import openai
-from openai import AzureOpenAI
 from tqdm import tqdm
 from datasets import Dataset
 from datasets import load_dataset
-from transformers import AutoTokenizer
-
-# vLLM imports
-from vllm import LLM, SamplingParams
-from vllm.distributed import init_distributed_environment
+from huggingface_hub import snapshot_download
 
 from utils.llm_utils import VLLMGenerator
+from utils.prompt import SOLUTION_GENERATION_PROMPT_STDIO as user_prompt
+from utils.prompt import SOLUTION_GENERATION_SYSTEM_PROMPT_STDIO as system_prompt
 
 
-def generate_multiple_solutions(
+HF_CACHE_DIR = os.path.expanduser('~/.cache/huggingface/datasets')
+OUTPUT_DIR = "outputs/inference/code_solutions"
+
+
+def get_output_path(args: argparse.Namespace) -> str:
+    if args.best_of_n:
+        return (
+            f"{OUTPUT_DIR}/solution_by_{args.target_path}_best_of_{args.n_samples}_"
+            f"{args.benchmark}_{args.split}_split.json"
+        )
+    return f"{OUTPUT_DIR}/solution_by_{args.target_path}_{args.benchmark}_{args.split}_split.json"
+
+
+def load_benchmark_dataset(args: argparse.Namespace) -> Dataset:
+    if args.benchmark == "taco":
+        dataset_name = "dgjun32/UTRL_TACO_EVAL"
+    elif args.benchmark == "livecodebench":
+        dataset_name = "dgjun32/UTRL_LCB_EVAL"
+    else:
+        raise ValueError(f"Unsupported benchmark: {args.benchmark}")
+
+    repo_path = snapshot_download(
+        repo_id=dataset_name,
+        repo_type="dataset",
+        cache_dir=HF_CACHE_DIR,
+    )
+
+    split_name = args.split if args.split else "train"
+    split_pattern = f"{repo_path}/data/{split_name}-*.parquet"
+
+    try:
+        return load_dataset(
+            "parquet",
+            data_files=split_pattern,
+            split="train",
+        )
+    except Exception:
+        return load_dataset(
+            "parquet",
+            data_files=f"{repo_path}/data/train-*.parquet",
+            split="train",
+        )
+
+
+def build_messages(dataset: Dataset, user_prompt: str, system_prompt: str, problem_key: str = "problem_statement") -> List[List[dict]]:
+    print("Preparing messages...")
+    all_messages: List[List[dict]] = []
+    for i in range(len(dataset)):
+        problem_query = dataset[i][problem_key]
+        all_messages.append(
+            [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt.format(problem_query=problem_query)},
+            ]
+        )
+    return all_messages
+
+
+def generate_solutions(
     args: argparse.Namespace,
     dataset: Dataset,
     vllm_generator: VLLMGenerator,
     n_samples: int,
     user_prompt: str,
     system_prompt: str,
-) -> List[List[str]]:
-    """
-    Optimized multiple solution generation using vLLM
-    """
+) -> Union[List[str], List[List[str]]]:
     batch_size = args.batch_size
-    all_solutions = []
-    problem_key = "question"
-    
-    # Pre-build all messages to avoid repeated computation
-    print("Preparing messages...")
-    all_messages = []
-    for i in range(len(dataset)):
-        problem_query = dataset[i][problem_key]
-        message = [
-                {
-                "role": "system",
-                "content": system_prompt
-                },
-                {
-                "role": "user",
-                "content": user_prompt.format(problem_query=problem_query)
-                }
-            ]
-        all_messages.append(message)
-    
-    # Process in batches
-    for i in tqdm(range(0, len(all_messages), batch_size), desc="Generating multiple solutions with vLLM"):
+    all_outputs: Union[List[str], List[List[str]]] = []
+    output_path = get_output_path(args)
+    all_messages = build_messages(dataset, user_prompt, system_prompt)
+
+    desc = "Generating multiple solutions with vLLM" if n_samples > 1 else "Generating solutions with vLLM"
+    for i in tqdm(range(0, len(all_messages), batch_size), desc=desc):
         batch_end = min(i + batch_size, len(all_messages))
         batch_messages = all_messages[i:batch_end]
-        
-        # Generate solutions
-        batch_solutions = vllm_generator.generate(batch_messages, n_samples)
-        all_solutions.extend(batch_solutions)
-        # Save periodically
-        with open(f"results/inference/taco_solutions/solution_by_{args.target_path}_best_of_{args.n_samples}_taco_{args.split}_split.json", "w") as f:
-            json.dump(all_solutions, f)
-        
-        
-    return all_solutions
 
+        batch_solutions = vllm_generator.generate(batch_messages, n_samples=n_samples)
+        if n_samples == 1:
+            all_outputs.extend([sol[0] for sol in batch_solutions])
+        else:
+            all_outputs.extend(batch_solutions)
 
-def generate_solution(
-    args: argparse.Namespace,
-    dataset: Dataset,
-    vllm_generator: VLLMGenerator,
-    user_prompt: str,
-    system_prompt: str,
-) -> List[str]:
-    """
-    Optimized single solution generation using vLLM
-    """
-    batch_size = args.batch_size
-    all_responses = []
-    problem_key = "question"
-        
-    # Pre-build all messages
-    print("Preparing messages...")
-    all_messages = []
-    for i in range(len(dataset)):
-        problem_query = dataset[i][problem_key]
-        message = [
-                {
-                "role": "system",
-                "content": system_prompt
-                },
-                {
-                "role": "user",
-                "content": user_prompt.format(problem_query=problem_query)
-                }
-            ]
-        all_messages.append(message)
-    
-    # Process in large batches
-    for i in tqdm(range(0, len(all_messages), batch_size), desc="Generating solutions with vLLM"):
-        batch_end = min(i + batch_size, len(all_messages))
-        batch_messages = all_messages[i:batch_end]
-        
-        # Generate solutions (single sample)
-        batch_solutions = vllm_generator.generate(batch_messages, n_samples=1)
-        # Extract single solutions from nested lists
-        batch_responses = [sol[0] for sol in batch_solutions]
-        all_responses.extend(batch_responses)
-        # Save periodically
-        with open(f"results/inference/taco_solutions/solution_by_{args.target_path}_best_of_{args.n_samples}_taco_{args.split}_split.json", "w") as f:
-            json.dump(all_responses, f)
-    
-    return all_responses
+        with open(output_path, "w") as f:
+            json.dump(all_outputs, f)
+
+    return all_outputs
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
+    parser.add_argument("--benchmark", type=str, choices=["taco", "livecodebench"], default="taco")
     parser.add_argument("--solution_generation_model", type=str, default="Qwen/Qwen3-4B")
     parser.add_argument("--target_path", type=str, help="The signature of the solution generation model")
     parser.add_argument("--best_of_n", action="store_true", required=False)
@@ -147,21 +118,13 @@ if __name__ == "__main__":
     parser.add_argument("--split", type=str, default="test")
     parser.add_argument("--tensor_parallel_size", type=int, default=1, help="Number of GPUs for tensor parallelism")
     parser.add_argument("--gpu_memory_utilization", type=float, default=0.9, help="GPU memory utilization")
-    parser.add_argument("--batch_size", type=int, default=512, help="Batch size for inference")
+    parser.add_argument("--batch_size", type=int, default=128, help="Batch size for inference")
     args = parser.parse_args()
     
     # Create results directory
-    os.makedirs(f"results/inference/taco_solutions/", exist_ok=True)
+    os.makedirs(OUTPUT_DIR, exist_ok=True)
     
-    # set benchmark configs
-    dataset_name = "BAAI/TACO"
-    from utils.prompt import SOLUTION_GENERATION_PROMPT_STDIO as user_prompt
-    from utils.prompt import SOLUTION_GENERATION_SYSTEM_PROMPT_STDIO as system_prompt
-    dataset = load_dataset(
-        dataset_name,
-        cache_dir=os.path.expanduser('~/.cache/huggingface/datasets'),
-        trust_remote_code=True
-    )[args.split]
+    dataset = load_benchmark_dataset(args)
     
     # Initialize vLLM generator
     print(f"Initializing vLLM with model: {args.solution_generation_model}")
@@ -172,39 +135,23 @@ if __name__ == "__main__":
     )
     
     # Generate solutions
-    if not args.best_of_n:
-        # Single solution per problem
-        cache_file = f"results/inference/taco_solutions/solution_by_{args.target_path}_taco_{args.split}_split.json"
-        if os.path.exists(cache_file):
+    cache_file = get_output_path(args)
+    n_samples = args.n_samples if args.best_of_n else 1
+
+    if not args.best_of_n and os.path.exists(cache_file):
             print("Loading solutions from cache...")
             solutions = json.load(open(cache_file))
-        else:
-            print("Generating solutions...")
-            solutions = generate_solution(
-                args=args,
-                dataset=dataset,
-                vllm_generator=vllm_generator,
-                user_prompt = user_prompt,
-                system_prompt = system_prompt
-            )
-            
-            # Final save
-            with open(cache_file, "w") as f:
-                json.dump(solutions, f)
-                
-    elif args.best_of_n:
-        # Multiple solutions per problem
-        cache_file = f"results/inference/taco_solutions/solution_by_{args.target_path}_best_of_{args.n_samples}_taco_{args.split}_split.json"
-        print("Generating multiple solutions...")
-        solutions = generate_multiple_solutions(
+    else:
+        print("Generating multiple solutions..." if args.best_of_n else "Generating solutions...")
+        solutions = generate_solutions(
             args=args,
             dataset=dataset,
             vllm_generator=vllm_generator,
-            n_samples=args.n_samples,
-            user_prompt = user_prompt,
-            system_prompt = system_prompt
+            n_samples=n_samples,
+            user_prompt=user_prompt,
+            system_prompt=system_prompt,
         )
-        # Final save
+
         with open(cache_file, "w") as f:
             json.dump(solutions, f)
 

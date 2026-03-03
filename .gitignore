@@ -4,9 +4,46 @@ utils/__pycache__/
 test.ipynb
 training.log
 wandb/
+# Python cache/artifacts
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+
+# Notebooks
+.ipynb_checkpoints/
+
+# Logs
+*.log
+training.log
+
+# Local cache
+.cache/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Editor/OS
+.vscode/
+.idea/
+.DS_Store
+
+# Experiment tracking
+wandb/
+
+# Project-specific outputs/data
 mnt/
 outputs/
 checkpoints/
 data/
 ckpt/
+
+# Local scratch files
+test.ipynb
 README_will_update.md

@@ -102,11 +102,6 @@ class VLLMGenerator:
         return results
 
 
-
-# TODO: move to config file
-client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
-
-
 # function to call llm with openai client
 def call_llm(client: OpenAI,
             messages: List[Dict[str, str]], 

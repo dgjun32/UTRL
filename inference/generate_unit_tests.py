@@ -29,6 +29,7 @@ from openai import AzureOpenAI
 from tqdm import tqdm
 from datasets import Dataset
 from datasets import load_dataset
+from huggingface_hub import snapshot_download
 from transformers import AutoTokenizer
 
 
@@ -47,7 +48,7 @@ def generate_test(
     """
     batch_size = args.batch_size
     all_responses = []
-    problem_key = "question"
+    problem_key = "problem_statement"
     
     # Pre-build all messages
     print("Preparing messages...")
@@ -78,7 +79,7 @@ def generate_test(
         all_responses.extend(batch_responses)
 
         # Save periodically
-        with open(f'results/inference/taco_unit_tests/unit_test_by_{args.target_path}_taco_{args.split}_split.json', "w") as f:
+        with open(f'outputs/inference/unit_tests/unit_test_by_{args.target_path}_{args.benchmark}_{args.split}_split.json', "w") as f:
             json.dump(all_responses, f)
     
     return all_responses
@@ -86,6 +87,7 @@ def generate_test(
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
+    parser.add_argument("--benchmark", type=str, choices=["taco", "livecodebench"], default="taco")
     parser.add_argument("--test_generation_model", type=str, default="Qwen/Qwen3-4B")
     parser.add_argument("--target_path", type=str, help="The signature of the model checkpoint")
     parser.add_argument("--split", type=str, default="test")
@@ -95,17 +97,39 @@ if __name__ == "__main__":
     args = parser.parse_args()
     
     # Create results directory
-    os.makedirs(f"results/inference/taco_unit_tests/", exist_ok=True)
+    os.makedirs(f"outputs/inference/unit_tests/", exist_ok=True)
     
     # set benchmark configs
-    dataset_name = "BAAI/TACO"
+    if args.benchmark == "taco":
+        dataset_name = "dgjun32/UTRL_TACO_EVAL"
+    elif args.benchmark == "livecodebench":
+        dataset_name = "dgjun32/UTRL_LCB_EVAL"
+    else:
+        raise ValueError(f"Unsupported benchmark: {args.benchmark}")
+    
     from utils.prompt import TEST_GENERATION_PROMPT_STDIO as user_prompt
     from utils.prompt import TEST_GENERATION_SYSTEM_PROMPT_STDIO as system_prompt
-    dataset = load_dataset(
-        dataset_name,
+    repo_path = snapshot_download(
+        repo_id=dataset_name,
+        repo_type="dataset",
         cache_dir=os.path.expanduser('~/.cache/huggingface/datasets'),
-        trust_remote_code=True
-    )[args.split]
+    )
+
+    split_name = args.split if args.split else "train"
+    split_pattern = f"{repo_path}/data/{split_name}-*.parquet"
+
+    try:
+        dataset = load_dataset(
+            "parquet",
+            data_files=split_pattern,
+            split="train",
+        )
+    except Exception:
+        dataset = load_dataset(
+            "parquet",
+            data_files=f"{repo_path}/data/train-*.parquet",
+            split="train",
+        )
     
     # Initialize vLLM generator
     print(f"Initializing vLLM with model: {args.test_generation_model}")
@@ -116,7 +140,7 @@ if __name__ == "__main__":
     )
     
     # Single solution per problem
-    cache_file = f'results/inference/taco_unit_tests/unit_test_by_{args.target_path}_taco_{args.split}_split.json'
+    cache_file = f'outputs/inference/unit_tests/unit_test_by_{args.target_path}_{args.benchmark}_{args.split}_split.json'
     print("Generating test scripts...")
     tests = generate_test(
         args=args,

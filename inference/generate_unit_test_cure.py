@@ -29,6 +29,7 @@ from openai import AzureOpenAI
 from tqdm import tqdm
 from datasets import Dataset
 from datasets import load_dataset
+from huggingface_hub import snapshot_download
 from transformers import AutoTokenizer
 
 from utils.llm_utils import VLLMGenerator
@@ -49,7 +50,7 @@ def generate_multiple_tests(
     # Use larger batch size for vLLM (it handles batching efficiently)
     batch_size = 512  # Much larger than before due to vLLM efficiency
     all_solutions = []
-    problem_key = "question"
+    problem_key = "problem_statement"
     
     # Pre-build all messages to avoid repeated computation
     print("Preparing messages...")
@@ -78,7 +79,7 @@ def generate_multiple_tests(
         all_solutions.extend(batch_solutions)
         
         # Save periodically
-        with open(f"results/inference/taco_unit_tests/unit_test_by_{args.target_path}_best_of_{args.n_samples}_taco_{args.split}_split.json", "w") as f:
+        with open(f"outputs/inference/unit_tests/unit_test_by_{args.target_path}_best_of_{args.n_samples}_{args.benchmark}_{args.split}_split.json", "w") as f:
             json.dump(all_solutions, f)
         
     return all_solutions
@@ -86,8 +87,9 @@ def generate_multiple_tests(
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
+    parser.add_argument("--benchmark", type=str, choices=["taco", "livecodebench"], default="taco")
     parser.add_argument("--test_generation_model", type=str, default="GenVerse/ReasonFlux-Coder-7B")
-    parser.add_argument("--target_path", type=str, help="The signature of the model checkpoint")
+    parser.add_argument("--target_path", type=str, default="cure", help="The signature of the model checkpoint (CURE)")
     parser.add_argument("--best_of_n", action="store_true", required=False)
     parser.add_argument("--n_samples", type=int, default=16, help="Number of samples to generate")
     parser.add_argument("--split", type=str, default="test")
@@ -97,17 +99,37 @@ if __name__ == "__main__":
     args = parser.parse_args()
     
     # Create results directory
-    os.makedirs("results/inference/taco_unit_tests/", exist_ok=True)
+    os.makedirs("outputs/inference/unit_tests/", exist_ok=True)
     
     # Load dataset
     print("Loading dataset...")
     from utils.prompt import TEST_GENERATION_PROMPT_CURE as user_prompt
     from utils.prompt import TEST_GENERATION_SYSTEM_PROMPT_CURE as system_prompt
-    dataset = load_dataset(
-        "BAAI/TACO",
+    if args.benchmark == "taco":
+        dataset_name = "dgjun32/UTRL_TACO_EVAL"
+    else:
+        dataset_name = "dgjun32/UTRL_LCB_EVAL"
+    repo_path = snapshot_download(
+        repo_id=dataset_name,
+        repo_type="dataset",
         cache_dir=os.path.expanduser('~/.cache/huggingface/datasets'),
-        trust_remote_code=True
-    )[args.split]
+    )
+
+    split_name = args.split if args.split else "train"
+    split_pattern = f"{repo_path}/data/{split_name}-*.parquet"
+
+    try:
+        dataset = load_dataset(
+            "parquet",
+            data_files=split_pattern,
+            split="train",
+        )
+    except Exception:
+        dataset = load_dataset(
+            "parquet",
+            data_files=f"{repo_path}/data/train-*.parquet",
+            split="train",
+        )
     
     # Initialize vLLM generator
     print(f"Initializing vLLM with model: {args.test_generation_model}")
@@ -118,7 +140,7 @@ if __name__ == "__main__":
         max_model_len=32768
     )
     
-    cache_file = f"results/inference/unit_test_by_{args.target_path}_best_of_{args.n_samples}_{args.benchmark}_{args.split}_split.json"
+    cache_file = f"outputs/inference/unit_tests/unit_test_by_{args.target_path}_best_of_{args.n_samples}_{args.benchmark}_{args.split}_split.json"
         
     print("Generating test scripts...")
     tests = generate_multiple_tests(
@@ -129,3 +151,6 @@ if __name__ == "__main__":
         user_prompt = user_prompt,
         system_prompt = system_prompt
     )
+
+    with open(cache_file, "w") as f:
+        json.dump(tests, f)
