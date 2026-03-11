@@ -109,8 +109,22 @@ wandb login
 
 ### 📊 **Evaluation**
 #### 0. Download checkpoints
-We provide two checkpoints, where we fine-tuned Qwen3-4B and Qwen3-14B via UTRL, using instruction-code pairs provided in the TACO dataset.
-* Link: xxxx
+
+We provide checkpoints fine-tuned via UTRL on instruction-code pairs from the [TACO](https://huggingface.co/datasets/BAAI/TACO) dataset.
+
+| Model | Base | Task | Download |
+|-------|------|------|----------|
+| **UTRL-4B** | Qwen3-4B | Unit Test Generation | [![Hugging Face](https://img.shields.io/badge/🤗%20HuggingFace-UTRL--4B-yellow)](https://huggingface.co/dgjun32/UTRL-4B) |
+| **UTRL-Codegen-4B** | Qwen3-4B | Code Generation | [![Hugging Face](https://img.shields.io/badge/🤗%20HuggingFace-UTRL--Codegen--4B-yellow)](https://huggingface.co/dgjun32/UTRL-Codegen-4B) |
+| **UTRL-14B** | Qwen3-14B | Unit Test Generation | 🔜 Coming soon |
+| **UTRL-7B** | Qwen2.5-7B-Instruct | Unit Test Generation | 🔜 Coming soon |
+
+```python
+from transformers import AutoModelForCausalLM, AutoTokenizer
+
+model = AutoModelForCausalLM.from_pretrained("dgjun32/UTRL-4B")
+tokenizer = AutoTokenizer.from_pretrained("dgjun32/UTRL-4B")
+```
 
 #### 1. Generate unit tests using the trained checkpoint
 
@@ -199,32 +213,8 @@ python -m evaluation.compute_ut_fidelity \
   --test_generation_model ${signature of the checkpoint (e.g., qwen3_4b_utrl)} \
 ```
 
-### 🏃‍♂️ **Training**
-We provide scripts for training Qwen3-4B and Qwen3-14B via **UTRL**. Note that the RL training requires long time to run (e.g., 2 days for training Qwen3-4B via UTRL using 15K training samples in TACO dataset).
-
-#### **1. UTRL - Iteration 1**
-```bash
-# Create data for training unit test generator
-bash scripts/prepare_ut_data_iter_1.sh
-
-# Train UT generator LLM via UTRL
-bash scripts/train_ut_model_iter_1.sh
-
-# Create data for training code generator
-bash scripts/prepare_code_data_iter_1.sh ${ut generator ckpt step (50)}
-
-# Train Code generator LLM via UTRL
-bash scripts/train_code_model_iter_1.sh
-```
-
-#### **2. UTRL - Iteration 2**
-```bash
-# Create data for training unit test generator
-bash scripts/prepare_ut_data_iter_2.sh ${code generator ckpt step (370)}
-
-# Train UT generator LLM via UTRL
-bash scripts/train_ut_model_iter_2.sh ${ut generator ckpt step (50)}
-```
+### 🏃‍♂️ **Training (Coming Soon)**
+We will update the training scripts based on verl.
 
 
 

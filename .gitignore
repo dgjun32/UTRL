@@ -41,6 +41,7 @@ wandb/
 mnt/
 outputs/
 checkpoints/
+dataset/
 data/
 ckpt/
 
